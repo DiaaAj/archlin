@@ -1,0 +1,18 @@
+@startuml
+!include <awslib/AWSCommon>
+!include <awslib/AWSSimplified.puml>
+!include <awslib/Storage/SimpleStorageServiceS3.puml>
+!include <awslib/ApplicationIntegration/SQS.puml>
+!include <awslib/Compute/Lambda.puml>
+
+'Define resources
+SimpleStorageServiceS3(sourceBucket, "Source Bucket", "Stores incoming files")
+SQS(processingQueue, "Processing Queue", "Queues files for processing")
+Lambda(processorFunction, "Processor Function", "Processes files from S3")
+
+'Define relationships
+sourceBucket --> processingQueue : "File upload notifications"
+processingQueue --> processorFunction : "Triggers"
+processorFunction --> sourceBucket : "Reads files"
+
+@enduml
