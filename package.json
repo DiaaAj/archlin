@@ -1,0 +1,38 @@
+{
+    "name": "plantuml-to-aws",
+    "version": "1.0.0",
+    "description": "Convert PlantUML diagrams to deployable AWS CDK infrastructure",
+    "main": "plantuml-to-aws.js",
+    "bin": {
+      "plantuml-to-aws": "./plantuml-to-aws.js"
+    },
+    "scripts": {
+      "start": "node plantuml-to-aws.js",
+      "test": "jest"
+    },
+    "keywords": [
+      "plantuml",
+      "aws",
+      "cdk",
+      "infrastructure",
+      "iac",
+      "claude",
+      "automation"
+    ],
+    "author": "",
+    "license": "MIT",
+    "dependencies": {
+      "axios": "^1.6.2",
+      "chalk": "^4.1.2",
+      "commander": "^11.1.0",
+      "dotenv": "^16.3.1",
+      "inquirer": "^8.2.6",
+      "ora": "^5.4.1"
+    },
+    "devDependencies": {
+      "jest": "^29.7.0"
+    },
+    "engines": {
+      "node": ">=14.0.0"
+    }
+  }
