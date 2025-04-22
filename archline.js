@@ -32,7 +32,6 @@ program
 
 const options = program.opts();
 
-// Main function
 async function main() {
   try {
     // Validate input file
@@ -53,14 +52,14 @@ async function main() {
     // 2. Generate CDK code using Claude API
     spinner.text = 'Generating AWS CDK code with Claude';
     spinner.start();
-    const cdkCode = await generateCdkCode(plantUmlContent);
-    spinner.succeed('AWS CDK code generated successfully');
+    const files = await generateCdkCode(plantUmlContent);
+    spinner.succeed(`AWS CDK code generated successfully (${files.length} files)`);
 
     // 3. Create CDK project structure
     spinner.text = 'Creating CDK project';
     spinner.start();
     const outputDir = path.resolve(options.output);
-    await createCdkProject(outputDir, cdkCode);
+    await createCdkProject(outputDir, files);
     spinner.succeed(`CDK project created at ${outputDir}`);
 
     // 4. Install dependencies
@@ -109,14 +108,24 @@ The PlantUML diagram is:
 ${plantUmlContent}
 \`\`\`
 
-Please organize your response to include:
-1. Complete infrastructure code for all CDK constructs
-2. Stack definition
-3. Main app entry point
-4. package.json with required dependencies
-5. tsconfig.json configuration
+IMPORTANT: Format your response as a JSON array of objects, where each object represents a file with the following structure:
+[
+  {
+    "filename": "relative/path/to/file.ts",
+    "content": "// The complete file content here..."
+  },
+  ... additional files ...
+]
 
-Format your response as proper TypeScript code files that can be directly saved and used.
+Include at minimum these essential files:
+- bin/app.ts (main entry point)
+- lib/stack.ts (the main stack)
+- package.json (with all dependencies)
+- tsconfig.json
+- cdk.json
+
+DO NOT include README.md, test files, or any other documentation files.
+DO NOT include any comments or explanations outside of the JSON response. The JSON should be valid and parsable.
 `;
 
   try {
@@ -124,7 +133,7 @@ Format your response as proper TypeScript code files that can be directly saved 
       CLAUDE_API_URL,
       {
         model: CLAUDE_MODEL,
-        max_tokens: 4000,
+        max_tokens: 8000,
         messages: [
           { role: "user", content: prompt }
         ]
@@ -138,81 +147,65 @@ Format your response as proper TypeScript code files that can be directly saved 
       }
     );
 
-    return response.data.content[0].text;
+    // Extract the response text
+    const responseText = response.data.content[0].text;
+
+    // Find the JSON array in the response
+    const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) {
+      throw new Error('Could not find properly formatted JSON response');
+    }
+
+    // Parse the JSON
+    try {
+      const files = JSON.parse(jsonMatch[0]);
+      return files;
+    } catch (error) {
+      console.error('Error parsing JSON response:', error);
+      throw new Error('Invalid JSON format in response');
+    }
   } catch (error) {
     console.error('Error calling Claude API:', error.response?.data || error.message);
     throw new Error('Failed to generate CDK code');
   }
 }
 
-// Extract and organize code from Claude's response
-async function createCdkProject(outputDir, cdkResponse) {
-  // Parse the response to identify different files
-  const files = parseCodeBlocks(cdkResponse);
-  
+// Updated createCdkProject function to work with the structured response format
+
+async function createCdkProject(outputDir, files) {
   // Create the output directory if it doesn't exist
   await fs.mkdir(outputDir, { recursive: true });
-  
-  // Create bin and lib directories
-  await fs.mkdir(path.join(outputDir, 'bin'), { recursive: true });
-  await fs.mkdir(path.join(outputDir, 'lib'), { recursive: true });
-  
-  // Write extracted files
-  for (const [filename, content] of Object.entries(files)) {
-    const filePath = path.join(outputDir, filename);
+
+  // Write each file to the appropriate location
+  for (const file of files) {
+    const filePath = path.join(outputDir, file.filename);
+
+    // Create directory structure if it doesn't exist
     await fs.mkdir(path.dirname(filePath), { recursive: true });
-    await fs.writeFile(filePath, content);
+
+    // Write the file content
+    await fs.writeFile(filePath, file.content);
+    console.log(chalk.gray(`Created file: ${file.filename}`));
   }
-  
-  // Create any missing essential files
+
+  // Ensure all essential files exist
   await ensureEssentialFiles(outputDir, files);
 }
 
-// Parse code blocks from Claude's response
-function parseCodeBlocks(response) {
-  const files = {};
-  
-  // Match markdown code blocks with file indicators
-  const codeBlockRegex = /```(?:typescript|json|javascript)?\s*(?:\/\/\s*([^\n]+)|([^\n]+\.(?:ts|json|js)))?([^`]*?)```/gs;
-  let match;
-  
-  while ((match = codeBlockRegex.exec(response)) !== null) {
-    let filename = match[1] || match[2];
-    let content = match[3].trim();
-    
-    // If no filename was detected in the code block header
-    if (!filename) {
-      // Try to infer filename from the content
-      if (content.includes('new cdk.App()')) {
-        filename = 'bin/app.ts';
-      } else if (content.includes('extends cdk.Stack')) {
-        filename = 'lib/infrastructure-stack.ts';
-      } else if (content.includes('"dependencies"')) {
-        filename = 'package.json';
-      } else if (content.includes('"compilerOptions"')) {
-        filename = 'tsconfig.json';
-      } else if (content.includes('cdk.json')) {
-        filename = 'cdk.json';
-      }
-    }
-    
-    // Skip if we couldn't determine a filename
-    if (!filename) continue;
-    
-    // Clean up any path prefixes that might be in comments
-    filename = filename.replace(/^["']|["']$/g, '').trim();
-    
-    // Store the file content
-    files[filename] = content;
-  }
-  
-  return files;
+// Helper function to check if a file exists in the generated files
+function fileExists(files, filename) {
+  return files.some(file => file.filename === filename);
 }
 
-// Ensure all essential files exist
+// Updated ensureEssentialFiles function
 async function ensureEssentialFiles(outputDir, files) {
+  const fileMap = files.reduce((map, file) => {
+    map[file.filename] = true;
+    return map;
+  }, {});
+
   // Default package.json if not present
-  if (!files['package.json']) {
+  if (!fileMap['package.json']) {
     const packageJson = {
       "name": "aws-cdk-project",
       "version": "0.1.0",
@@ -240,15 +233,16 @@ async function ensureEssentialFiles(outputDir, files) {
         "source-map-support": "^0.5.21"
       }
     };
-    
+
     await fs.writeFile(
       path.join(outputDir, 'package.json'),
       JSON.stringify(packageJson, null, 2)
     );
+    console.log(chalk.yellow('Created default package.json file'));
   }
-  
+
   // Default tsconfig.json if not present
-  if (!files['tsconfig.json']) {
+  if (!fileMap['tsconfig.json']) {
     const tsConfig = {
       "compilerOptions": {
         "target": "ES2018",
@@ -272,15 +266,16 @@ async function ensureEssentialFiles(outputDir, files) {
       },
       "exclude": ["node_modules", "cdk.out"]
     };
-    
+
     await fs.writeFile(
       path.join(outputDir, 'tsconfig.json'),
       JSON.stringify(tsConfig, null, 2)
     );
+    console.log(chalk.yellow('Created default tsconfig.json file'));
   }
-  
+
   // Default cdk.json if not present
-  if (!files['cdk.json']) {
+  if (!fileMap['cdk.json']) {
     const cdkJson = {
       "app": "npx ts-node --prefer-ts-exts bin/app.ts",
       "watch": {
@@ -327,15 +322,16 @@ async function ensureEssentialFiles(outputDir, files) {
         "@aws-cdk/aws-redshift:columnId": true
       }
     };
-    
+
     await fs.writeFile(
       path.join(outputDir, 'cdk.json'),
       JSON.stringify(cdkJson, null, 2)
     );
+    console.log(chalk.yellow('Created default cdk.json file'));
   }
-  
+
   // Create .gitignore if not present
-  if (!files['.gitignore']) {
+  if (!fileMap['.gitignore']) {
     const gitignore = `# CDK asset staging directory
 .cdk.staging
 cdk.out
@@ -357,8 +353,9 @@ node_modules
 # OS files
 .DS_Store
 `;
-    
+
     await fs.writeFile(path.join(outputDir, '.gitignore'), gitignore);
+    console.log(chalk.gray('Created .gitignore file'));
   }
 }
 
@@ -386,7 +383,7 @@ async function deployCdkProject(projectDir) {
 
     // Change to project directory
     process.chdir(projectDir);
-    
+
     // Check if user wants to proceed
     if (!options.yes) {
       const { confirm } = await inquirer.prompt([{
@@ -395,36 +392,36 @@ async function deployCdkProject(projectDir) {
         message: chalk.yellow('Are you sure you want to deploy this infrastructure to AWS?'),
         default: false
       }]);
-      
+
       if (!confirm) {
         console.log(chalk.blue('Deployment cancelled'));
         return;
       }
     }
-    
+
     // Run CDK bootstrap if needed
     console.log(chalk.blue('Running CDK bootstrap...'));
-    await execPromise('npm run cdk bootstrap', { 
-      stdio: 'inherit', 
-      env 
+    await execPromise('npm run cdk bootstrap', {
+      stdio: 'inherit',
+      env
     });
-    
+
     // Deploy the CDK stack
     console.log(chalk.blue('Deploying CDK stack...'));
     const spinner = ora('Deploying infrastructure to AWS').start();
-    
+
     await execPromise('npm run cdk deploy --require-approval never', {
       stdio: 'inherit',
       env
     });
-    
+
     spinner.succeed(chalk.green('Infrastructure deployed successfully!'));
-    
+
     // Display outputs
     console.log(chalk.blue('\nStack outputs:'));
     const { stdout } = await execPromise('npm run cdk list-outputs');
     console.log(stdout);
-    
+
   } catch (error) {
     console.error(chalk.red('Deployment failed:'), error.message);
     console.log(chalk.yellow('You can try deploying manually:'));
