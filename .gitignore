@@ -1,3 +1,7 @@
 cdk-project/*
 aws/*
+debug-project/*
+.vscode/*
 .env
+node_modules/*
+package-lock.json
