@@ -133,7 +133,7 @@ DO NOT include any comments or explanations outside of the JSON response. The JS
       CLAUDE_API_URL,
       {
         model: CLAUDE_MODEL,
-        max_tokens: 8000,
+        max_tokens: 16000,
         messages: [
           { role: "user", content: prompt }
         ]
