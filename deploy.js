@@ -12,7 +12,7 @@ require('dotenv').config();
 
 // CLI Configuration
 program
-  .name('deploy-cdk')
+  .name('deploy')
   .description('Deploy an existing AWS CDK project')
   .version('1.0.0')
   .option('-p, --project <directory>', 'Path to the CDK project directory', process.cwd())

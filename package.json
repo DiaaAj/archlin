@@ -1,15 +1,17 @@
 {
-  "name": "archline",
+  "name": "infrastructure-automation",
   "version": "1.0.0",
   "description": "Convert PlantUML diagrams to deployable AWS CDK infrastructure",
-  "main": "archline.js",
+  "main": "run.js",
   "bin": {
-    "archline": "./generate.js",
-    "archline-deploy": "./deploy.js",
-    "archline-debug": "./debug.js"
+    "run":"./run.js",
+    "generate": "./generate.js",
+    "deploy": "./deploy.js",
+    "debug": "./debug.js"
   },
   "scripts": {
-    "start": "node archline.js",
+    "run": "node run.js",
+    "start": "node generate.js",
     "deploy": "node deploy.js",
     "debug": "node debug.js",
     "test": "jest"

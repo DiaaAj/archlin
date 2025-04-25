@@ -20,7 +20,7 @@ const MAX_FIX_ATTEMPTS = 5;
 
 // CLI Configuration
 program
-  .name('fix-cdk-errors')
+  .name('debug')
   .description('Fix AWS CDK deployment errors using Claude')
   .version('1.0.0')
   .option('-p, --project <directory>', 'Path to the CDK project directory', process.cwd())
