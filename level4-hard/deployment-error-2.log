@@ -1,0 +1,10 @@
+STDOUT:
+
+> serverless-architecture-cdk@0.1.0 build
+> tsc
+
+error TS5055: Cannot write file '/workspaces/archlin/level4-hard/dist/bin/app.d.ts' because it would overwrite input file.
+error TS5055: Cannot write file '/workspaces/archlin/level4-hard/dist/lib/stack.d.ts' because it would overwrite input file.
+
+
+STDERR:

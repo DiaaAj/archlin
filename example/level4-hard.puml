@@ -1,0 +1,88 @@
+@startuml
+skinparam rectangle {
+  BackgroundColor #fdf6e3
+  BorderColor Black
+  RoundCorner 10
+}
+skinparam note {
+  BackgroundColor #fefcf0
+  BorderColor #999999
+}
+
+title AWS Serverless Architecture v3 (Advanced - KMS, Kinesis, Step Functions)
+
+' Components
+rectangle "Raw Bucket\n(S3)" as rawBucket
+rectangle "Validated Bucket\n(S3)" as validatedBucket
+rectangle "Processed Bucket\n(S3)" as processedBucket
+rectangle "KMS Key\n(KMS)" as kmsKey
+rectangle "Event Bus\n(EventBridge)" as eventBus
+rectangle "Ingestion State Machine\n(Step Functions)" as ingestionStepFn
+rectangle "Publishing State Machine\n(Step Functions)" as publishingStepFn
+rectangle "Validator Lambda\n(Lambda)" as validatorLambda
+rectangle "Enricher Lambda\n(Lambda)" as enricherLambda
+rectangle "Processor Lambda\n(Lambda)" as processorLambda
+rectangle "Publisher Lambda\n(Lambda)" as publisherLambda
+rectangle "DLQ\n(SQS)" as dlq
+rectangle "Audit Stream\n(Kinesis Firehose)" as firehose
+rectangle "Audit Bucket\n(S3)" as auditBucket
+rectangle "Metadata Table\n(DynamoDB)" as metadataTable
+rectangle "Logs Table\n(DynamoDB)" as logsTable
+rectangle "API Lambda\n(Lambda)" as apiFunction
+rectangle "API Gateway\n(APIGateway)" as apiGateway
+rectangle "Logger Lambda\n(Lambda)" as loggerFunction
+rectangle "CloudWatch Alarms" as cloudwatch
+
+' Notes
+note right of validatorLambda
+  Validate file (format, size)
+  Move to Validated Bucket if ok
+end note
+
+note right of enricherLambda
+  Add metadata (e.g., upload source, timestamp)
+end note
+
+note right of processorLambda
+  Process validated files (e.g., compress, encrypt)
+end note
+
+note right of publisherLambda
+  Publish processed files (e.g., create public links or notify downstream)
+end note
+
+note right of loggerFunction
+  Log file lifecycle events to Logs Table
+end note
+
+note right of apiFunction
+  Serve metadata and file access API
+end note
+
+' Flow
+rawBucket --> eventBus : Upload event
+eventBus --> ingestionStepFn : Start ingestion workflow
+ingestionStepFn --> validatorLambda : Validate
+validatorLambda --> validatedBucket : Save valid files
+ingestionStepFn --> enricherLambda : Enrich metadata
+enricherLambda --> metadataTable : Save metadata
+ingestionStepFn --> dlq : On validation failure
+
+validatedBucket --> eventBus : Validation complete
+eventBus --> publishingStepFn : Start publishing workflow
+publishingStepFn --> processorLambda : Process file
+processorLambda --> processedBucket : Save processed file
+publishingStepFn --> publisherLambda : Publish result
+publisherLambda --> firehose : Archive event
+firehose --> auditBucket : Store audit logs
+
+dlq --> cloudwatch : Monitor DLQ depth
+publishingStepFn --> cloudwatch : Monitor failures
+
+eventBus --> loggerFunction : Log all events
+loggerFunction --> logsTable : Store logs
+
+apiGateway --> apiFunction : Serve HTTP API
+apiFunction --> metadataTable : Query file info
+apiFunction --> processedBucket : Generate pre-signed URLs
+@enduml

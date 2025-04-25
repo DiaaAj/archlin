@@ -1,0 +1,12 @@
+STDOUT:
+
+> serverless-architecture-cdk@0.1.0 build
+> tsc
+
+lib/stack.ts(14,31): error TS2307: Cannot find module 'aws-cdk-lib/aws-kinesisfirehose-destinations' or its corresponding type declarations.
+lib/stack.ts(239,45): error TS2551: Property 'CUSTOMER_MANAGED_KEY' does not exist on type 'typeof StreamEncryption'. Did you mean 'customerManagedKey'?
+lib/stack.ts(240,7): error TS2345: Argument of type '{ encryption: any; encryptionKey: cdk.aws_kms.Key; destination: any; }' is not assignable to parameter of type 'DeliveryStreamProps'.
+  Object literal may only specify known properties, but 'encryptionKey' does not exist in type 'DeliveryStreamProps'. Did you mean to write 'encryption'?
+
+
+STDERR:

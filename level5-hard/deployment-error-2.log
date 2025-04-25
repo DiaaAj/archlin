@@ -1,0 +1,13 @@
+STDOUT:
+
+> toy-app-cdk@0.1.0 build
+> npm run clean && tsc
+
+
+> toy-app-cdk@0.1.0 clean
+> rm -rf dist
+
+lib/stack.ts(39,7): error TS2322: Type '{ enabled: true; }' is not assignable to type 'boolean | undefined'.
+
+
+STDERR:

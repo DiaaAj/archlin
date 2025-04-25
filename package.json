@@ -5,11 +5,13 @@
   "main": "archline.js",
   "bin": {
     "archline": "./archline.js",
-    "archline-deploy": "./deploy.js"
+    "archline-deploy": "./deploy.js",
+    "archline-debug": "./debug.js"
   },
   "scripts": {
     "start": "node archline.js",
     "deploy": "node deploy.js",
+    "debug": "node debug.js",
     "test": "jest"
   },
   "keywords": [

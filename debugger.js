@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 const fs = require('fs').promises;
+const fsSync = require('fs');
 const path = require('path');
 const axios = require('axios');
 const { exec } = require('child_process');
@@ -84,11 +85,49 @@ async function main() {
       attempt++;
       console.log(chalk.blue(`\nAttempt ${attempt}/${maxAttempts} to deploy CDK project`));
       
+      // Handle file overwrite issues if detected
+      if (lastError && lastError.stderr && lastError.stderr.includes('overwrite input file')) {
+        // Extract the specific files that can't be overwritten
+        const overwriteMatches = lastError.stderr.match(/Cannot write file ['"]([^'"]+)['"]/g);
+        if (overwriteMatches) {
+          console.log(chalk.yellow('Detected file overwrite errors. Fixing specific files...'));
+          
+          // Extract file paths from the matches
+          for (const match of overwriteMatches) {
+            const filePath = match.match(/['"]([^'"]+)['"]/)[1];
+            if (fsSync.existsSync(filePath)) {
+              try {
+                console.log(chalk.blue(`Setting write permissions for: ${filePath}`));
+                // Make the file writable
+                await fs.chmod(filePath, 0o666);
+                
+                // If that doesn't work, try to remove just that specific file
+                if (fsSync.existsSync(filePath)) {
+                  try {
+                    fsSync.accessSync(filePath, fsSync.constants.W_OK);
+                  } catch (err) {
+                    console.log(chalk.blue(`Removing file to allow overwrite: ${filePath}`));
+                    await fs.unlink(filePath);
+                  }
+                }
+              } catch (error) {
+                console.log(chalk.yellow(`Could not fix permissions for file: ${filePath}`));
+              }
+            }
+          }
+        }
+      }
+      
       if (lastError) {
         // Try to fix the error using Claude
         const fixSpinner = ora('Analyzing and fixing deployment errors with Claude').start();
         try {
-          const fixedFiles = await fixDeploymentErrors(projectDir, plantUmlContent, lastError, fixHistory);
+          const result = await fixDeploymentErrors(projectDir, plantUmlContent, lastError, fixHistory);
+          const { fixedFiles, summary } = result;
+          
+          // Display summary
+          console.log(chalk.cyan('\nFix summary:'));
+          console.log(chalk.cyan(summary));
           
           // Add this fix to history
           fixHistory.push({
@@ -100,7 +139,8 @@ async function main() {
             fixedFiles: fixedFiles.map(file => ({
               filename: file.filename,
               checksum: calculateChecksum(file.content)
-            }))
+            })),
+            summary
           });
           
           fixSpinner.succeed('Code fixes applied based on error analysis');
@@ -114,8 +154,10 @@ async function main() {
       // Try to deploy
       const deploySpinner = ora('Deploying CDK project').start();
       try {
-        // First synthesize to catch compilation errors
-        await execPromise('npm run build && npx cdk synth', { env });
+        // Use the custom build function that handles overwrites
+        await buildWithOverwrite(env);
+        // Then synthesize
+        await execPromise('npx cdk synth', { env });
         deploySpinner.text = 'Synthesized successfully, now deploying...';
         
         // Then deploy
@@ -180,6 +222,24 @@ async function main() {
   }
 }
 
+// Custom build function that handles overwrite errors
+async function buildWithOverwrite(env) {
+  try {
+    // First try normal build
+    await execPromise('npm run build', { env });
+  } catch (error) {
+    if (error.stderr && error.stderr.includes('overwrite input file')) {
+      console.log(chalk.yellow('Build failed due to overwrite protection. Trying with forced overwrite...'));
+      
+      // Force overwrite by using tsc directly with --force flag
+      await execPromise('npx tsc --build --force', { env });
+    } else {
+      // If it's not an overwrite error, re-throw
+      throw error;
+    }
+  }
+}
+
 // Calculate a simple checksum for a file content
 function calculateChecksum(content) {
   let hash = 0;
@@ -189,6 +249,79 @@ function calculateChecksum(content) {
     hash = hash & hash; // Convert to 32bit integer
   }
   return hash.toString(16);
+}
+
+// Normalize file paths for consistency
+function normalizeFilePath(filePath, projectDir) {
+  // Handle absolute paths
+  if (path.isAbsolute(filePath)) {
+    if (filePath.startsWith(projectDir)) {
+      return path.relative(projectDir, filePath);
+    }
+    // If it's outside the project dir, try to match by filename
+    return path.basename(filePath);
+  }
+  
+  return filePath;
+}
+
+async function ensureAuditDirectory(projectDir) {
+  const auditDir = path.join(projectDir, '.archline-audit');
+  await fs.mkdir(auditDir, { recursive: true });
+  return auditDir;
+}
+
+// Log the prompt, response, and actions for each fix attempt
+async function logAudit(projectDir, attempt, data) {
+  try {
+    const auditDir = await ensureAuditDirectory(projectDir);
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const auditLogFile = path.join(auditDir, `fix-attempt-${attempt}-${timestamp}.json`);
+    
+    await fs.writeFile(auditLogFile, JSON.stringify(data, null, 2));
+    console.log(chalk.blue(`Audit log saved to: ${auditLogFile}`));
+    
+    // Also save a human-readable version for easier inspection
+    const readableLog = path.join(auditDir, `fix-attempt-${attempt}-${timestamp}.md`);
+    const readableContent = `# Fix Attempt ${attempt} - ${new Date().toLocaleString()}
+
+## Error
+\`\`\`
+${data.error.message}
+${data.error.stderr || ''}
+\`\`\`
+
+## Files Analyzed
+${data.relevantFiles.map(f => `- ${f.path}`).join('\n')}
+
+## Prompt Sent to Claude
+\`\`\`
+${data.prompt}
+\`\`\`
+
+## Claude's Response
+\`\`\`json
+${JSON.stringify(data.response, null, 2)}
+\`\`\`
+
+## Fix Summary
+${data.response.summary}
+
+## Files Modified
+${data.response.files.map(f => `- ${f.filename}`).join('\n')}
+
+## Result
+${data.success ? 'SUCCESS' : 'FAILED'}
+`;
+    
+    await fs.writeFile(readableLog, readableContent);
+    console.log(chalk.blue(`Human-readable audit log saved to: ${readableLog}`));
+    
+    return auditLogFile;
+  } catch (error) {
+    console.error(chalk.yellow(`Warning: Could not save audit log: ${error.message}`));
+    return null;
+  }
 }
 
 // Fix deployment errors using Claude
@@ -236,6 +369,7 @@ ${file.content}
     fixHistory.forEach((attempt, index) => {
       fixHistoryContext += `\nAttempt ${attempt.attempt}:
 - Error: ${attempt.error.snippet}
+- Summary: ${attempt.summary || 'No summary available'}
 - Files modified: ${attempt.fixedFiles.map(f => f.filename).join(', ')}
 `;
     });
@@ -264,17 +398,36 @@ Please identify the issues and provide corrected versions of the files.
 
 ${fixHistory.length > 0 ? 'The previous approaches failed, so you need to try something different this time.' : ''}
 
-IMPORTANT: Format your response as a JSON array of objects, where each object represents a file with the following structure:
-[
-  {
-    "filename": "relative/path/to/file.ts",
-    "content": "// The complete corrected file content here..."
-  },
-  ... additional files if needed ...
-]
+IMPORTANT: Format your response as a JSON object with the following structure:
+{
+  "summary": "Brief explanation of what changes you made and why they should fix the issue",
+  "files": [
+    {
+      "filename": "relative/path/to/file.ts",
+      "content": "// The complete corrected file content here..."
+    },
+    ... additional files if needed ...
+  ]
+}
 
-Only include files that need to be changed. DO NOT explain the fixes, just provide the corrected files in the JSON format.
+The summary should be a concise explanation in plain English that describes what was changed and why.
+Only include files that need to be changed. DO NOT provide additional explanations outside of the JSON structure.
 `;
+
+  // Prepare audit data
+  const auditData = {
+    attempt: fixHistory.length + 1,
+    timestamp: new Date().toISOString(),
+    error: {
+      message: error.message,
+      stdout: error.stdout,
+      stderr: error.stderr
+    },
+    relevantFiles: relevantFiles.map(f => ({ path: f.path })),
+    prompt: prompt,
+    response: null,
+    success: false
+  };
 
   try {
     console.log(chalk.gray('Sending request to Claude...'));
@@ -283,7 +436,7 @@ Only include files that need to be changed. DO NOT explain the fixes, just provi
       CLAUDE_API_URL,
       {
         model: CLAUDE_MODEL,
-        max_tokens: 4000,
+        max_tokens: 16000,
         messages: [
           { role: "user", content: prompt }
         ]
@@ -299,25 +452,47 @@ Only include files that need to be changed. DO NOT explain the fixes, just provi
 
     const responseText = response.data.content[0].text;
     
-    // Find the JSON array in the response
-    const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+    // Save the raw response to audit
+    auditData.rawResponse = responseText;
+    
+    // Find the JSON object in the response
+    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       throw new Error('Could not find properly formatted JSON response from Claude');
     }
     
     // Parse the JSON
-    let fixedFiles;
+    let result;
     try {
-      fixedFiles = JSON.parse(jsonMatch[0]);
+      result = JSON.parse(jsonMatch[0]);
+      
+      // Ensure the response has the correct structure
+      if (!result.summary) {
+        result.summary = 'No summary provided';
+      }
+      
+      if (!result.files || !Array.isArray(result.files) || result.files.length === 0) {
+        throw new Error('No files included in the response');
+      }
+      
+      // Add result to audit data
+      auditData.response = result;
+      
     } catch (error) {
       console.error('Error parsing JSON response:', error);
+      auditData.parseError = error.message;
+      auditData.jsonFragment = jsonMatch[0];
+      
+      // Save audit log for debugging
+      await logAudit(projectDir, auditData.attempt, auditData);
+      
       throw new Error('Invalid JSON format in Claude\'s response');
     }
     
     // Apply the fixes
-    console.log(chalk.blue(`Applying fixes to ${fixedFiles.length} files:`));
+    console.log(chalk.blue(`Applying fixes to ${result.files.length} files:`));
     
-    for (const file of fixedFiles) {
+    for (const file of result.files) {
       const filePath = path.join(projectDir, file.filename);
       console.log(chalk.gray(`- Updating ${file.filename}`));
       
@@ -328,9 +503,22 @@ Only include files that need to be changed. DO NOT explain the fixes, just provi
       await fs.writeFile(filePath, file.content);
     }
     
-    return fixedFiles;
+    // Mark success and save audit log
+    auditData.success = true;
+    await logAudit(projectDir, auditData.attempt, auditData);
+    
+    return {
+      fixedFiles: result.files,
+      summary: result.summary
+    };
   } catch (error) {
     console.error('Error calling Claude API:', error.response?.data || error.message);
+    
+    // Add error to audit data and log it
+    auditData.apiError = error.message;
+    auditData.apiErrorDetails = error.response?.data;
+    await logAudit(projectDir, auditData.attempt, auditData);
+    
     throw new Error('Failed to get fixes from Claude');
   }
 }
@@ -351,7 +539,8 @@ async function extractRelevantFiles(errorText, projectDir) {
     /Cannot find module ['"]([^'"]+)['"]/g, // Missing module errors
     /ENOENT: no such file or directory, open ['"]([^'"]+)['"]/g, // File not found errors
     /from (\/[^:]+):/g,                   // Stack trace file paths
-    /at ([^:]+):[0-9]+:[0-9]+/g           // Stack trace with line and column
+    /at ([^:]+):[0-9]+:[0-9]+/g,          // Stack trace with line and column
+    /Cannot write file ['"]([^'"]+)['"]/g  // Permission errors
   ];
   
   // Extract file paths from error text using patterns
@@ -368,8 +557,27 @@ async function extractRelevantFiles(errorText, projectDir) {
       }
       
       // Convert absolute paths to relative
-      if (path.isAbsolute(filePath) && filePath.startsWith(projectDir)) {
-        filePath = path.relative(projectDir, filePath);
+      filePath = normalizeFilePath(filePath, projectDir);
+      
+      // If we see a dist path, add the corresponding source file instead
+      if (filePath.startsWith('dist/')) {
+        const sourceFile = filePath.replace(/^dist\//, '').replace(/\.js$/, '.ts').replace(/\.d\.ts$/, '.ts');
+        if (!filesMentioned.has(sourceFile)) {
+          filesMentioned.add(sourceFile);
+          try {
+            const fullPath = path.join(projectDir, sourceFile);
+            if (fsSync.existsSync(fullPath)) {
+              const content = await fs.readFile(fullPath, 'utf8');
+              relevantFiles.push({
+                path: sourceFile,
+                content
+              });
+              console.log(chalk.gray(`Added source file ${sourceFile} for dist error`));
+            }
+          } catch (error) {
+            console.log(chalk.yellow(`Could not read source file: ${sourceFile}`));
+          }
+        }
       }
       
       // Skip if already processed

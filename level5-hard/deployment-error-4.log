@@ -1,0 +1,9 @@
+STDOUT:
+
+> toy-app@0.1.0 build
+> tsc
+
+lib/stack.ts(186,17): error TS2511: Cannot create an instance of an abstract class.
+
+
+STDERR:
