@@ -4,7 +4,7 @@
   "description": "Convert PlantUML diagrams to deployable AWS CDK infrastructure",
   "main": "archline.js",
   "bin": {
-    "archline": "./archline.js",
+    "archline": "./generate.js",
     "archline-deploy": "./deploy.js",
     "archline-debug": "./debug.js"
   },
