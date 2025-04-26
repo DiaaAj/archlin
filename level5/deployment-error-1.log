@@ -1,9 +1,0 @@
-STDOUT:
-
-> toy-app-cdk@0.1.0 build
-> tsc
-
-lib/stack.ts(171,12): error TS2339: Property 'BucketDeployment' does not exist on type 'typeof import("/workspaces/archlin/level5/node_modules/aws-cdk-lib/aws-s3/index")'.
-
-
-STDERR:
