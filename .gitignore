@@ -6,5 +6,6 @@ debug-project/*
 node_modules/*
 package-lock.json
 example-*
+cdk-generated-*
 level*
 cdk-generated-*
