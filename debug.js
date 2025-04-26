@@ -180,7 +180,7 @@ async function main() {
         };
         
         // Save the error details to a file for reference
-        const errorLogPath = path.join(projectDir, `deployment-error-${attempt}.log`);
+        const errorLogPath = path.join(projectDir, '.deployment-error-logs', `deployment-error-${attempt}.log`);
         await fs.writeFile(errorLogPath, `STDOUT:\n${error.stdout || ''}\n\nSTDERR:\n${error.stderr || ''}`);
         console.log(chalk.yellow(`Error details saved to: ${errorLogPath}`));
         
@@ -266,7 +266,7 @@ function normalizeFilePath(filePath, projectDir) {
 }
 
 async function ensureAuditDirectory(projectDir) {
-  const auditDir = path.join(projectDir, '.archline-audit');
+  const auditDir = path.join(projectDir, '.agent-audit-logs');
   await fs.mkdir(auditDir, { recursive: true });
   return auditDir;
 }

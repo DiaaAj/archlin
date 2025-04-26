@@ -24,6 +24,7 @@ program
   .version('1.0.0')
   .option('-i, --input <path>', 'Path to the PlantUML file')
   .option('-o, --output <directory>', 'Output directory for CDK project', './cdk-output')
+  .option('-c, --context <path>', 'Path to a file with additional context for the LLM')
   .option('-d, --deploy', 'Deploy the infrastructure after generation', false)
   .option('-p, --profile <profile>', 'AWS profile to use for deployment')
   .option('-r, --region <region>', 'AWS region to deploy to', 'us-east-1')
@@ -49,20 +50,34 @@ async function main() {
     const plantUmlContent = await fs.readFile(inputPath, 'utf8');
     spinner.succeed('PlantUML file read successfully');
 
-    // 2. Generate CDK code using Claude API
+    // 2. Read additional context if provided
+    let contextContent = '';
+    if (options.context) {
+      try {
+        spinner.text = 'Reading context file';
+        spinner.start();
+        contextContent = await fs.readFile(options.context, 'utf8');
+        spinner.succeed('Context file read successfully');
+      } catch (error) {
+        spinner.fail(`Failed to read context file: ${error.message}`);
+        console.error(chalk.yellow('Proceeding without additional context'));
+      }
+    }
+
+    // 3. Generate CDK code using Claude API
     spinner.text = 'Generating AWS CDK code with Claude';
     spinner.start();
-    const files = await generateCdkCode(plantUmlContent);
+    const files = await generateCdkCode(plantUmlContent, contextContent);
     spinner.succeed(`AWS CDK code generated successfully (${files.length} files)`);
 
-    // 3. Create CDK project structure
+    // 4. Create CDK project structure
     spinner.text = 'Creating CDK project';
     spinner.start();
     const outputDir = path.resolve(options.output);
     await createCdkProject(outputDir, files);
     spinner.succeed(`CDK project created at ${outputDir}`);
 
-    // 4. Install dependencies
+    // 5. Install dependencies
     spinner.text = 'Installing dependencies';
     spinner.start();
     await installDependencies(outputDir);
@@ -71,7 +86,7 @@ async function main() {
     console.log(chalk.green('\n✨ CDK code has been generated successfully! ✨'));
     console.log(chalk.blue(`You can find the project in: ${outputDir}`));
 
-    // 5. Deploy if requested
+    // 6. Deploy if requested
     if (options.deploy) {
       await deployCdkProject(outputDir);
     } else {
@@ -87,10 +102,15 @@ async function main() {
 }
 
 // Generate CDK code using Claude API
-async function generateCdkCode(plantUmlContent) {
+async function generateCdkCode(plantUmlContent, contextContent = '') {
   if (!CLAUDE_API_KEY) {
     throw new Error('Anthropic API key is not set. Please set the ANTHROPIC_API_KEY environment variable.');
   }
+
+  // Add context section if provided
+  const contextSection = contextContent ? 
+    `\nAdditional context and requirements:\n${contextContent}\n` : 
+    '';
 
   const prompt = `
 I have a PlantUML diagram representing an AWS architecture. Please analyze this diagram and generate a complete, deployable AWS CDK project in TypeScript. Include all necessary files including lib files, bin files, package.json, and tsconfig.json.
@@ -100,7 +120,7 @@ The CDK code should:
 2. Include proper IAM permissions and security configurations
 3. Use best practices for AWS resource configuration
 4. Include comments explaining key components
-5. Be immediately deployable with minimal manual changes
+5. Be immediately deployable with minimal manual changes${contextSection}
 
 The PlantUML diagram is:
 
@@ -171,7 +191,6 @@ DO NOT include any comments or explanations outside of the JSON response. The JS
 }
 
 // Updated createCdkProject function to work with the structured response format
-
 async function createCdkProject(outputDir, files) {
   // Create the output directory if it doesn't exist
   await fs.mkdir(outputDir, { recursive: true });
@@ -428,6 +447,27 @@ async function deployCdkProject(projectDir) {
     console.log(`cd ${projectDir}`);
     console.log('npm run cdk deploy');
     throw new Error('CDK deployment failed');
+  }
+}
+
+// Save the original PlantUML diagram and context to the output directory for reference
+async function saveSourceFiles(outputDir, plantUmlContent, contextContent) {
+  try {
+    // Create a source directory
+    const sourceDir = path.join(outputDir, 'source');
+    await fs.mkdir(sourceDir, { recursive: true });
+    
+    // Save the PlantUML diagram
+    await fs.writeFile(path.join(sourceDir, 'architecture.puml'), plantUmlContent);
+    
+    // Save the context if provided
+    if (contextContent) {
+      await fs.writeFile(path.join(sourceDir, 'context.txt'), contextContent);
+    }
+    
+    console.log(chalk.gray('Source files saved for reference'));
+  } catch (error) {
+    console.log(chalk.yellow(`Could not save source files: ${error.message}`));
   }
 }
 
