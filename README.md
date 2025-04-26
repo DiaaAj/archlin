@@ -2,6 +2,7 @@
 
 ![Under Development](https://img.shields.io/badge/-Under%20Development-yellow)
 ![AWS](https://img.shields.io/badge/-AWS-orange)
+![Yet Another LLM Wrapper 🙄](https://img.shields.io/badge/-Yet%20Another%20LLM%20Wrapper%20%F0%9F%99%84-lightgrey)
 
 A tool that converts PlantUML diagrams into deployable AWS CDK infrastructure using Claude.
 
