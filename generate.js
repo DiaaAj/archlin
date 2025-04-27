@@ -283,7 +283,8 @@ async function ensureEssentialFiles(outputDir, files) {
         "strictPropertyInitialization": false,
         "typeRoots": ["./node_modules/@types"]
       },
-      "exclude": ["node_modules", "cdk.out"]
+      "exclude": ["node_modules", "cdk.out"],
+      "include": ["bin/**/*", "lib/**/*"]
     };
 
     await fs.writeFile(
