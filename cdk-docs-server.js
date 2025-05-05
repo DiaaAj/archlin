@@ -4,6 +4,8 @@ const axios = require('axios');
 const { Command } = require('commander');
 const chalk = require('chalk');
 const ora = require('ora');
+const fs = require('fs');
+const path = require('path');
 
 const CDK_DOCS_ROOT_URL = 'https://docs.aws.amazon.com/cdk/api/v2/docs/aws-construct-library.html';
 
@@ -126,6 +128,7 @@ async function main() {
     .version('1.0.0')
     .option('-s, --services <services>', 'Comma-separated list of AWS services', 'Lambda,DynamoDB')
     .option('-f, --format', 'Format the output for better readability', false)
+    .option('-o, --output <file>', 'Output the results to a file')
     .parse(process.argv);
   
   const options = program.opts();
@@ -136,12 +139,17 @@ async function main() {
   
   try {
     const documentation = await fetchCdkDocumentation(services);
+    const jsonOutput = options.format ? JSON.stringify(documentation, null, 2) : JSON.stringify(documentation);
     
-    if (options.format) {
-      console.log(chalk.green('Documentation fetched successfully:'));
-      console.log(JSON.stringify(documentation, null, 2));
+    if (options.output) {
+      const outputPath = path.resolve(options.output);
+      fs.writeFileSync(outputPath, jsonOutput);
+      console.log(chalk.green(`Documentation saved to: ${outputPath}`));
     } else {
-      console.log(JSON.stringify(documentation));
+      if (options.format) {
+        console.log(chalk.green('Documentation fetched successfully:'));
+      }
+      console.log(jsonOutput);
     }
   } catch (error) {
     console.error(chalk.red(`Error: ${error.message}`));
