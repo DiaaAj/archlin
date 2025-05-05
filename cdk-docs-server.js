@@ -26,15 +26,20 @@ async function fetchCdkDocumentation(services) {
     const serviceLinks = parseServiceLinks(rootPageHtml, services);
     
     const result = {};
+    const sourceUrls = {};
+    
     for (const service of services) {
       if (!serviceLinks[service]) {
         spinner.warn(`Could not find documentation link for ${service}`);
         result[service] = `Documentation not found for ${service}`;
+        sourceUrls[service] = CDK_DOCS_ROOT_URL;
         continue;
       }
       
       spinner.text = `Fetching documentation for ${service}`;
       const serviceUrl = new URL(serviceLinks[service], CDK_DOCS_ROOT_URL).href;
+      sourceUrls[service] = serviceUrl;
+      
       const serviceResponse = await axios.get(serviceUrl);
       const serviceHtml = serviceResponse.data;
       
@@ -42,7 +47,7 @@ async function fetchCdkDocumentation(services) {
     }
     
     spinner.succeed('Successfully fetched AWS CDK documentation');
-    return result;
+    return { content: result, sourceUrls };
   } catch (error) {
     spinner.fail(`Error fetching AWS CDK documentation: ${error.message}`);
     throw error;
@@ -121,7 +126,7 @@ function extractRelevantContent(serviceHtml) {
  * @param {Object} documentation - Documentation object with service names as keys
  * @returns {string} - HTML page content
  */
-function generateHtmlPage(documentation) {
+function generateHtmlPage(documentation, sourceUrls) {
   const services = Object.keys(documentation);
   
   let html = `
@@ -161,6 +166,17 @@ function generateHtmlPage(documentation) {
       margin: -20px -20px 20px -20px;
       border-bottom: 1px solid #eaeded;
       border-radius: 5px 5px 0 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .source-link {
+      font-size: 14px;
+      color: #0073bb;
+      text-decoration: none;
+    }
+    .source-link:hover {
+      text-decoration: underline;
     }
     pre {
       background-color: #f6f8fa;
@@ -212,6 +228,14 @@ function generateHtmlPage(documentation) {
     th {
       background-color: #fafafa;
     }
+    .footer {
+      margin-top: 40px;
+      padding-top: 20px;
+      border-top: 1px solid #eaeded;
+      font-size: 14px;
+      color: #666;
+      text-align: center;
+    }
   </style>
 </head>
 <body>
@@ -227,12 +251,18 @@ function generateHtmlPage(documentation) {
     <div id="${service.replace(/\s+/g, '-').toLowerCase()}" class="service-container">
       <div class="service-header">
         <h2>${service}</h2>
+        <a href="${sourceUrls[service]}" target="_blank" class="source-link">View Source Page</a>
       </div>
       ${typeof documentation[service] === 'string' && documentation[service].startsWith('Documentation not found') 
         ? `<p>${documentation[service]}</p>` 
         : documentation[service]}
     </div>
   `).join('')}
+  
+  <div class="footer">
+    <p>Documentation fetched from <a href="${CDK_DOCS_ROOT_URL}" target="_blank">AWS CDK API Reference</a></p>
+    <p>Generated on ${new Date().toLocaleString()}</p>
+  </div>
 </body>
 </html>
   `;
@@ -263,14 +293,18 @@ async function main() {
   console.log(chalk.gray(`Fetching documentation for: ${services.join(', ')}`));
   
   try {
-    const documentation = await fetchCdkDocumentation(services);
+    const { content: documentation, sourceUrls } = await fetchCdkDocumentation(services);
     
     let outputContent;
     if (options.html) {
-      outputContent = generateHtmlPage(documentation);
-      console.log(chalk.green('Generated HTML documentation'));
+      outputContent = generateHtmlPage(documentation, sourceUrls);
+      console.log(chalk.green('Generated HTML documentation with source page references'));
     } else {
-      outputContent = options.format ? JSON.stringify(documentation, null, 2) : JSON.stringify(documentation);
+      const jsonData = {
+        content: documentation,
+        sourceUrls: sourceUrls
+      };
+      outputContent = options.format ? JSON.stringify(jsonData, null, 2) : JSON.stringify(jsonData);
       if (options.format) {
         console.log(chalk.green('Documentation fetched successfully'));
       }
