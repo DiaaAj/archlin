@@ -117,6 +117,130 @@ function extractRelevantContent(serviceHtml) {
 }
 
 /**
+ * Generates an HTML page from the documentation
+ * @param {Object} documentation - Documentation object with service names as keys
+ * @returns {string} - HTML page content
+ */
+function generateHtmlPage(documentation) {
+  const services = Object.keys(documentation);
+  
+  let html = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AWS CDK Documentation</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+      line-height: 1.6;
+      color: #333;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    h1 {
+      color: #232f3e;
+      border-bottom: 1px solid #eaeded;
+      padding-bottom: 10px;
+    }
+    h2 {
+      color: #232f3e;
+      margin-top: 30px;
+    }
+    .service-container {
+      margin-bottom: 40px;
+      border: 1px solid #eaeded;
+      border-radius: 5px;
+      padding: 20px;
+    }
+    .service-header {
+      background-color: #fafafa;
+      padding: 10px;
+      margin: -20px -20px 20px -20px;
+      border-bottom: 1px solid #eaeded;
+      border-radius: 5px 5px 0 0;
+    }
+    pre {
+      background-color: #f6f8fa;
+      border-radius: 3px;
+      padding: 10px;
+      overflow: auto;
+    }
+    code {
+      font-family: SFMono-Regular, Consolas, 'Liberation Mono', Menlo, monospace;
+      font-size: 85%;
+    }
+    .nav {
+      position: sticky;
+      top: 0;
+      background: white;
+      padding: 10px 0;
+      border-bottom: 1px solid #eaeded;
+      margin-bottom: 20px;
+    }
+    .nav ul {
+      list-style-type: none;
+      padding: 0;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .nav li {
+      margin-right: 10px;
+    }
+    .nav a {
+      text-decoration: none;
+      color: #0073bb;
+      padding: 5px 10px;
+      border-radius: 3px;
+    }
+    .nav a:hover {
+      background-color: #f6f8fa;
+    }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin-bottom: 20px;
+    }
+    th, td {
+      border: 1px solid #eaeded;
+      padding: 8px 12px;
+      text-align: left;
+    }
+    th {
+      background-color: #fafafa;
+    }
+  </style>
+</head>
+<body>
+  <h1>AWS CDK Documentation</h1>
+  
+  <div class="nav">
+    <ul>
+      ${services.map(service => `<li><a href="#${service.replace(/\s+/g, '-').toLowerCase()}">${service}</a></li>`).join('')}
+    </ul>
+  </div>
+  
+  ${services.map(service => `
+    <div id="${service.replace(/\s+/g, '-').toLowerCase()}" class="service-container">
+      <div class="service-header">
+        <h2>${service}</h2>
+      </div>
+      ${typeof documentation[service] === 'string' && documentation[service].startsWith('Documentation not found') 
+        ? `<p>${documentation[service]}</p>` 
+        : documentation[service]}
+    </div>
+  `).join('')}
+</body>
+</html>
+  `;
+  
+  return html;
+}
+
+/**
  * Main function to run the CDK documentation server
  */
 async function main() {
@@ -129,6 +253,7 @@ async function main() {
     .option('-s, --services <services>', 'Comma-separated list of AWS services', 'Lambda,DynamoDB')
     .option('-f, --format', 'Format the output for better readability', false)
     .option('-o, --output <file>', 'Output the results to a file')
+    .option('-h, --html', 'Generate HTML output for human readability', false)
     .parse(process.argv);
   
   const options = program.opts();
@@ -139,17 +264,32 @@ async function main() {
   
   try {
     const documentation = await fetchCdkDocumentation(services);
-    const jsonOutput = options.format ? JSON.stringify(documentation, null, 2) : JSON.stringify(documentation);
+    
+    let outputContent;
+    if (options.html) {
+      outputContent = generateHtmlPage(documentation);
+      console.log(chalk.green('Generated HTML documentation'));
+    } else {
+      outputContent = options.format ? JSON.stringify(documentation, null, 2) : JSON.stringify(documentation);
+      if (options.format) {
+        console.log(chalk.green('Documentation fetched successfully'));
+      }
+    }
     
     if (options.output) {
       const outputPath = path.resolve(options.output);
-      fs.writeFileSync(outputPath, jsonOutput);
-      console.log(chalk.green(`Documentation saved to: ${outputPath}`));
-    } else {
-      if (options.format) {
-        console.log(chalk.green('Documentation fetched successfully:'));
+      fs.writeFileSync(outputPath, outputContent);
+      
+      let fileTypeHint = '';
+      if (options.html && !outputPath.endsWith('.html')) {
+        fileTypeHint = ' (HTML content)';
+      } else if (!options.html && !outputPath.endsWith('.json')) {
+        fileTypeHint = ' (JSON content)';
       }
-      console.log(jsonOutput);
+      
+      console.log(chalk.green(`Documentation saved to: ${outputPath}${fileTypeHint}`));
+    } else {
+      console.log(outputContent);
     }
   } catch (error) {
     console.error(chalk.red(`Error: ${error.message}`));
